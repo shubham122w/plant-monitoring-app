@@ -1,0 +1,129 @@
+// Blynk Configuration
+#define BLYNK_TEMPLATE_ID "TMPL3N_a2HqrE"
+#define BLYNK_TEMPLATE_NAME "IRRIGATION"
+#define BLYNK_AUTH_TOKEN "o85EPx5QbdVLa_dL1oCewSa4b2OEcbms"
+
+#include <Wire.h>
+#include <DHT.h>
+#include <BlynkSimpleEsp32.h>
+
+
+// Pin Definitions
+#define DHTPIN 2         // DHT11 data to GPIO2 (G2)
+#define DHTTYPE DHT11
+#define SOIL_PIN 34      // Soil sensor analog to pin 34 (SP/A0)
+#define PIR_PIN 13       // PIR OUT to GPIO13
+#define RELAY_PIN 17     // Relay to GPIO17
+
+// WiFi Credentials
+char ssid[] = "Harjas4g";      // Replace with your WiFi name
+char pass[] = "12345678";  // Replace with your WiFi password
+
+// DHT Settings
+DHT dht(DHTPIN, DHTTYPE);
+
+// Blynk Timer
+BlynkTimer timer;
+
+// Variables
+int soilThreshold = 35;  // Default soil moisture threshold
+
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+  
+  pinMode(PIR_PIN, INPUT);
+  pinMode(SOIL_PIN, INPUT);
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW); // Pump off initially
+
+  // Initialize Blynk
+  Serial.println("Connecting to Blynk...");
+  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
+  
+  // Setup a function to be called every 2 seconds
+  timer.setInterval(2000L, sendSensorData);
+  
+  delay(2000);
+  Serial.println("System started with Blynk integration");
+}
+
+void loop() {
+  Blynk.run();
+  timer.run();
+}
+
+void sendSensorData() {
+  // Read sensors
+  bool motion = digitalRead(PIR_PIN);
+  int soilRaw = analogRead(SOIL_PIN);
+  int soilPercent = map(soilRaw, 4095 , 0, 0, 100);
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  
+  // Check if any reads failed and exit early (to try again)
+  if (isnan(h) || isnan(t)) {
+    Serial.println("Failed to read from DHT sensor!");
+    return;
+  }
+
+  // Control relay according to soil moisture threshold
+  bool pumpState = false;
+  if (soilPercent < soilThreshold) {
+    digitalWrite(RELAY_PIN, HIGH); // Turn ON pump
+    pumpState = true;
+  } else {
+    digitalWrite(RELAY_PIN, LOW); // Turn OFF pump
+    pumpState = false;
+  }
+
+  // Send data to Blynk
+  Blynk.virtualWrite(V0, t);      // Virtual Pin V0 for Temperature
+  Blynk.virtualWrite(V1, h);      // Virtual Pin V1 for Humidity
+  Blynk.virtualWrite(V2, soilPercent); // Virtual Pin V2 for Soil Moisture
+  Blynk.virtualWrite(V3, motion ? 1 : 0); // Virtual Pin V3 for Motion
+  if(motion==true){
+    Blynk.logEvent("motion");
+  }
+  Blynk.virtualWrite(V4, pumpState ? 1 : 0); // Virtual Pin V4 for Pump Status
+  // Blynk.virtualWrite(V5, soilThreshold); // Virtual Pin V5 for current threshold
+
+  // Debug Serial
+  Serial.print("Temp: "); Serial.print(t); Serial.print("°C, ");
+  Serial.print("Humidity: "); Serial.print(h); Serial.print("%, ");
+  Serial.print("Soil: "); Serial.print(soilPercent); Serial.print("%, ");
+  Serial.print("Pump: "); Serial.print(pumpState ? "ON" : "OFF");
+  Serial.print(", Motion: "); Serial.println(motion ? "Yes" : "No");
+}
+
+// Blynk Virtual Write function for manual pump control
+// BLYNK_WRITE(V6) {
+//   int pinValue = param.asInt();
+//   if (pinValue == 1) {
+//     digitalWrite(RELAY_PIN, LOW); // Manual pump ON
+//     Serial.println("Manual Pump: ON");
+//     Blynk.virtualWrite(V4, 1); // Update pump status
+//   } else {
+//     digitalWrite(RELAY_PIN, HIGH); // Manual pump OFF
+//     Serial.println("Manual Pump: OFF");
+//     Blynk.virtualWrite(V4, 0); // Update pump status
+//   }
+// }
+
+// Blynk Virtual Write function for soil moisture threshold
+// BLYNK_WRITE(V7) {
+//   // int newThreshold = param.asInt();
+//   // soilThreshold = newThreshold;
+//   // Serial.print("New soil threshold set to: ");
+//   // Serial.println(soilThreshold);
+  
+//   // Send notification to Blynk app
+//   // Blynk.virtualWrite(V5, soilThreshold); // Update threshold display
+// }
+
+// Blynk connection status
+BLYNK_CONNECTED() {
+  Serial.println("Blynk Connected!");
+  // Request the latest values from server
+  Blynk.syncAll();
+}
